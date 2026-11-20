@@ -237,6 +237,7 @@ html[data-skin=classic] .fig text{font-family:Barlow,sans-serif}
 
     <h3>Signale</h3>
     <div class="card">
+      <p class="hint" id="astat" style="margin:10px 0 0"></p>
       <div class="row"><div class="lab"><b>Klang</b><small>Signale für Laufen, Gehen und Ende</small></div><select id="snd"><option value="electro">Elektro (Synth)</option><option value="bell">Glocken</option><option value="mar">Marimba</option><option value="horn">Kräftig (für laute Straßen)</option></select></div>
       <div class="tb"><button type="button" data-cue="riser" id="riserbtn">▶ Gleich laufen</button><button type="button" data-cue="run">▶ Laufen</button><button type="button" data-cue="walk">▶ Gehen</button><button type="button" data-cue="tick">▶ Countdown</button><button type="button" data-cue="done">▶ Ende</button></div>
       <div class="row"><div class="lab"><b>Countdown</b><small>Digitale Blips in den letzten 3 Sekunden</small></div><label class="sw"><input type="checkbox" id="tick"><span></span></label></div>
@@ -281,7 +282,7 @@ const VOL={lo:.32,mid:.55,hi:.8};
 /* ================= Synthesizer (offline gerendert) ================= */
 const SR=44100,BUF={},LOOP={};let ctx=null,master=null,cueBus=null,beatBus=null,analyser=null,sched=[],silentEl=null,baking=Promise.resolve(),prevLoop=null;
 function mkOC(sec){const O=window.OfflineAudioContext||window.webkitOfflineAudioContext;return new O(1,Math.ceil(SR*sec),SR)}
-function render(oc){return new Promise((res,rej)=>{oc.oncomplete=e=>res(e.renderedBuffer);const p=oc.startRendering();if(p&&p.then)p.then(res,rej)})}
+function renderOC(oc){return new Promise((res,rej)=>{oc.oncomplete=e=>res(e.renderedBuffer);const p=oc.startRendering();if(p&&p.then)p.then(res,rej)})}
 function noise(oc){const b=oc.createBuffer(1,SR,SR),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;return b}
 function decay(g,t,a,v,rel){g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(v,t+a);g.gain.exponentialRampToValueAtTime(.0001,t+a+rel)}
 function kick(oc,D,t,v){const o=oc.createOscillator(),g=oc.createGain();o.frequency.setValueAtTime(170,t);o.frequency.exponentialRampToValueAtTime(44,t+.11);decay(g,t,.002,v,.32);o.connect(g);g.connect(D);o.start(t);o.stop(t+.4)}
@@ -310,12 +311,12 @@ const CUE={
 };
 function norm(d,peak){let p=0;for(let i=0;i<d.length;i++)p=Math.max(p,Math.abs(d[i]));const k=peak/(p||1);for(let i=0;i<d.length;i++)d[i]*=k}
 async function bakeCue(name){const oc=mkOC(3.5),N=noise(oc),c=oc.createDynamicsCompressor();c.threshold.value=-16;c.ratio.value=4;c.connect(oc.destination);
-  const len=CUE[name](oc,c,N),buf=await render(oc),n=Math.ceil((len+.25)*SR),src=buf.getChannelData(0),o=new AudioBuffer({length:n,sampleRate:SR,numberOfChannels:1}),d=o.getChannelData(0);
+  const len=CUE[name](oc,c,N),buf=await renderOC(oc),n=Math.ceil((len+.25)*SR),src=buf.getChannelData(0),o=new AudioBuffer({length:n,sampleRate:SR,numberOfChannels:1}),d=o.getChannelData(0);
   for(let i=0;i<n;i++)d[i]=src[i]*(i>n-1500?(n-i)/1500:1);norm(d,name==='tick'?.6:.97);BUF[name]=o}
 async function bakeLoop(kind){const bpm=kind==='run'?S.bpmRun:S.bpmWalk,b=60/bpm,bar=b*4,n=Math.round(bar*SR),oc=mkOC(bar+1.2),N=noise(oc),c=oc.createDynamicsCompressor();c.threshold.value=-14;c.ratio.value=4;c.connect(oc.destination);
   if(kind==='run'){const notes=[55,55,65.41,49];for(let i=0;i<4;i++){const t=i*b;kick(oc,c,t,.95);hat(oc,N,c,t+b/2,.38,.07);hat(oc,N,c,t+b/4,.12);hat(oc,N,c,t+b*3/4,.12);if(i%2)clap(oc,N,c,t,.42);bass(oc,c,notes[i],t+b/2,b/2*.85,.5);bass(oc,c,notes[i]*2,t+b*3/4,b/4*.8,.18)}}
   else{for(let i=0;i<4;i++){const t=i*b;if(i%2===0)kick(oc,c,t,.5);for(let k=0;k<4;k++)hat(oc,N,c,t+k*b/4,k%2?.05:.09,.03);if(i===3)clap(oc,N,c,t,.12)}pad(oc,c,[220,261.63,329.63],0,bar,.22);bass(oc,c,55,0,bar*.95,.22,true)}
-  const buf=await render(oc),src=buf.getChannelData(0),o=new AudioBuffer({length:n,sampleRate:SR,numberOfChannels:1}),d=o.getChannelData(0);
+  const buf=await renderOC(oc),src=buf.getChannelData(0),o=new AudioBuffer({length:n,sampleRate:SR,numberOfChannels:1}),d=o.getChannelData(0);
   for(let i=0;i<n;i++)d[i]=src[i];for(let i=n;i<src.length;i++)d[i%n]+=src[i];norm(d,.9);LOOP[kind]=o}
 const PARTS={bell:[[1,1,1],[2,.45,.55],[2.76,.32,.4],[4.07,.18,.28],[5.4,.1,.18]],mar:[[1,1,1],[3.99,.32,.14],[9.2,.08,.04]],horn:[[1,1,1],[2,.6,.9],[3,.4,.8],[4,.25,.7],[5,.15,.6]],wood:[[1,1,1],[2.3,.5,.45]]};
 const CCUE={
@@ -332,19 +333,25 @@ async function bakeClassic(name,style){
   const parts=name==='tick'?PARTS.wood:PARTS[style]||PARTS.bell,horn=style==='horn'&&name!=='tick';
   const len=CCUE[name]((f,t,v,dec)=>{parts.forEach(([r,a,dm])=>{const o=oc.createOscillator(),g=oc.createGain(),e=t+dec*dm;
     o.type=horn&&r===1?'triangle':'sine';o.frequency.value=f*r;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(v*a,t+(horn?.03:.005));g.gain.exponentialRampToValueAtTime(.0001,e);o.connect(g);g.connect(dry);o.start(t);o.stop(e+.05)})});
-  const buf=await render(oc),n=Math.min(buf.length,Math.ceil((len+.6)*SR)),src=buf.getChannelData(0),o=new AudioBuffer({length:n,sampleRate:SR,numberOfChannels:1}),d=o.getChannelData(0);
+  const buf=await renderOC(oc),n=Math.min(buf.length,Math.ceil((len+.6)*SR)),src=buf.getChannelData(0),o=new AudioBuffer({length:n,sampleRate:SR,numberOfChannels:1}),d=o.getChannelData(0);
   for(let i=0;i<n;i++)d[i]=src[i]*(i>n-2000?(n-i)/2000:1);norm(d,name==='tick'?.55:.97);BUF[name]=o}
-function bakeAll(){const el=S.snd==='electro';delete BUF.riser;
-  baking=Promise.all([...(el?Object.keys(CUE).map(bakeCue):Object.keys(CCUE).map(k=>bakeClassic(k,S.snd))),bakeLoop('run'),bakeLoop('walk')]).catch(()=>{});return baking}
+let bakeErr='';
+function bakeAll(){const el=S.snd==='electro';delete BUF.riser;bakeErr='';
+  baking=Promise.all([...(el?Object.keys(CUE).map(bakeCue):Object.keys(CCUE).map(k=>bakeClassic(k,S.snd))),bakeLoop('run'),bakeLoop('walk')]).catch(e=>{bakeErr='Klänge konnten nicht erzeugt werden ('+((e&&e.message)||e)+').'}).then(audioStatus);return baking}
+function audioStatus(){const el=document.getElementById('astat');if(!el)return;const n=Object.keys(BUF).length+Object.keys(LOOP).length;
+  el.textContent=bakeErr?bakeErr:'Klänge bereit: '+n+(ctx?' · Audio: '+({running:'läuft',suspended:'angehalten',interrupted:'unterbrochen',closed:'aus'}[ctx.state]||ctx.state):' · Audio startet beim ersten Tippen')}
 
 function audioInit(){
-  if(!ctx){const A=window.AudioContext||window.webkitAudioContext;if(!A)return;ctx=new A();
+  try{if(navigator.audioSession)navigator.audioSession.type='playback'}catch(e){}
+  silentPlay();
+  if(!ctx){const A=window.AudioContext||window.webkitAudioContext;if(!A){bakeErr='Dieser Browser kann keinen Ton abspielen.';return}ctx=new A();
     const comp=ctx.createDynamicsCompressor();comp.threshold.value=-10;comp.ratio.value=3;analyser=ctx.createAnalyser();analyser.fftSize=256;analyser.smoothingTimeConstant=.75;
     master=ctx.createGain();master.connect(comp);comp.connect(analyser);analyser.connect(ctx.destination);
     cueBus=ctx.createGain();cueBus.connect(master);beatBus=ctx.createGain();beatBus.gain.value=VOL[S.beatVol]||.55;beatBus.connect(master);
     try{if(navigator.audioSession)navigator.audioSession.type='playback'}catch(e){}
     const o=ctx.createOscillator(),g=ctx.createGain();g.gain.value=.0001;o.connect(g);g.connect(ctx.destination);o.start()}
   if(ctx.state!=='running')ctx.resume().catch(()=>{});
+  setTimeout(audioStatus,400);
 }
 function silentWav(){const n=8000,b=new ArrayBuffer(44+n*2),v=new DataView(b),w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};
   w(0,'RIFF');v.setUint32(4,36+n*2,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,8000,true);v.setUint32(28,16000,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*2,true);
@@ -355,7 +362,7 @@ function at(name,t,end){if(!ctx)return;const loop=name==='loopRun'||name==='loop
   const s=ctx.createBufferSource();s.buffer=b;s.loop=loop;s.connect(loop?beatBus:cueBus);s.start(Math.max(t,ctx.currentTime));
   if(loop&&isFinite(end))s.stop(end);sched.push({s,t,end:loop?end:t+b.duration})}
 function cancelFrom(t){const now=ctx?ctx.currentTime:0;sched=sched.filter(x=>{if(x.end>=t-.001){try{x.s.stop(Math.max(t,now))}catch(e){try{x.s.stop()}catch(e2){}}return false}return true})}
-function preview(name){audioInit();baking.then(()=>{const b=BUF[name];if(!b)return;const s=ctx.createBufferSource();s.buffer=b;s.connect(cueBus);s.start(ctx.currentTime+.05)})}
+function preview(name){audioInit();baking.then(()=>{const b=BUF[name];if(!b){audioStatus();return}if(ctx.state!=='running')ctx.resume().catch(()=>{});const s=ctx.createBufferSource();s.buffer=b;s.connect(cueBus);s.start(ctx.currentTime+.05)})}
 function previewLoop(kind){audioInit();stopPrev();baking.then(()=>{const s=ctx.createBufferSource();s.buffer=LOOP[kind];s.loop=true;s.connect(beatBus);s.start(ctx.currentTime+.05);s.stop(ctx.currentTime+8);prevLoop=s})}
 function stopPrev(){try{prevLoop&&prevLoop.stop()}catch(e){}prevLoop=null}
 
