@@ -6,6 +6,7 @@
 <title>Intervall-Lauf</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
 /* VOICE: sporty, calm, readable at arm's length while out of breath
    IDEA: a running watch – the whole screen is one colour field: orange = laufen, blue = gehen, slate = ein-/auslaufen
@@ -105,7 +106,16 @@ textarea{width:100%;min-height:90px;font:14px/1.4 monospace;border-radius:12px;b
 .empty{color:var(--muted)}
 
 /* ---------- Navigation ---------- */
-nav{position:fixed;left:0;right:0;bottom:0;z-index:10;display:grid;grid-template-columns:repeat(3,1fr);background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+#v-map{position:relative}
+#map{height:calc(100svh - 66px - env(safe-area-inset-bottom));background:#dfe3e8;z-index:0}
+.mapbar{position:absolute;left:12px;right:12px;top:12px;z-index:5;display:flex;gap:8px;align-items:center;justify-content:space-between;pointer-events:none}
+.mapbar>*{pointer-events:auto}
+#mapinfo{background:var(--card);color:var(--ink);border-radius:12px;padding:8px 12px;font:600 18px 'Barlow Condensed',sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.2);font-variant-numeric:tabular-nums}
+#mapinfo small{font:400 13px Barlow,sans-serif;color:var(--muted);display:block}
+#center{background:var(--card);border:0;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+#mapnote{position:absolute;left:12px;right:12px;bottom:12px;z-index:5;background:var(--card);border-radius:12px;padding:10px 12px;font-size:14px;color:var(--muted);margin:0;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.leaflet-control-attribution{font-size:10px}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:10;display:grid;grid-template-columns:repeat(4,1fr);background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
 nav button{border:0;border-radius:0;min-height:62px;font-size:15px;color:var(--muted)}
 nav button[aria-selected=true]{color:var(--ink);box-shadow:inset 0 3px var(--run)}
 @media (max-width:420px){table{font-size:13px}th,td{padding:8px 4px}.mmss input{width:54px}.segt tr>:nth-child(5){display:none}}
@@ -192,8 +202,15 @@ nav button[aria-selected=true]{color:var(--ink);box-shadow:inset 0 3px var(--run
 
 <div id="lock" hidden><div id="lph"></div><div id="ltm"></div><div id="lnx"></div><button id="hold" type="button"><i></i>Gedrückt halten zum Entsperren</button></div>
 
-<nav role="tablist"><button type="button" role="tab" data-v="train" aria-selected="true">Training</button><button type="button" role="tab" data-v="res" aria-selected="false">Auswertung</button><button type="button" role="tab" data-v="set" aria-selected="false">Einstellungen</button></nav>
+<section id="v-map" class="view" hidden>
+  <div id="map" aria-label="Karte mit eurem Standort und der Strecke"></div>
+  <div class="mapbar"><div id="mapinfo">Karte</div><button id="center" type="button">Mitte</button></div>
+  <p id="mapnote" hidden></p>
+</section>
 
+<nav role="tablist"><button type="button" role="tab" data-v="train" aria-selected="true">Training</button><button type="button" role="tab" data-v="map" aria-selected="false">Karte</button><button type="button" role="tab" data-v="res" aria-selected="false">Auswertung</button><button type="button" role="tab" data-v="set" aria-selected="false">Einstellungen</button></nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 {
 const $=id=>document.getElementById(id);
@@ -321,14 +338,14 @@ function finish(){
   if(paused){pausedMs+=Date.now()-pauseWall;paused=false;audioInit()}
   endA=ctx.currentTime;endWall=Date.now();cancelFrom(0);stage='done';
   const segs=segments(),z=summ(segs),pMs=Math.max(0,wallMs()-z.ms);
-  lastRun={date:Date.now(),segs,pMs};try{localStorage.setItem('intervall-lauf-letztes',JSON.stringify(lastRun))}catch(e){}
+  lastRun={date:Date.now(),segs,pMs,track};try{localStorage.setItem('intervall-lauf-letztes',JSON.stringify(lastRun))}catch(e){}
   if(z.ms>60000){hist.push({date:Date.now(),ms:z.ms,dist:z.dist,rMs:z.r.ms,rDist:z.r.dist,wMs:z.w.ms,wDist:z.w.dist,pMs,count:S.count,run:S.run,walk:S.walk});saveHist()}
   clearInterval(timer);gpsOff();lockOff();silentStop();at('warm',ctx.currentTime+.05,true);say('Training beendet. Gut gemacht!');
   render();renderRes();
 }
 function reset(silent){
   clearInterval(timer);cancelFrom(0);if(paused&&ctx)ctx.resume().catch(()=>{});
-  stage='ready';paused=false;aStart=0;ivA=0;plan=[];pausedMs=0;dist={};lastPt=null;lastKey='';warmSaid=false;bgNote='';
+  stage='ready';paused=false;aStart=0;ivA=0;plan=[];pausedMs=0;dist={};lastPt=null;lastKey='';warmSaid=false;bgNote='';track=[];lastTrackKey='';
   if(!silent){gpsOff();lockOff();silentStop();try{speechSynthesis.cancel()}catch(e){}gpsState=''}
   render();
 }
@@ -359,13 +376,46 @@ document.addEventListener('visibilitychange',()=>{
 function hav(a,b){const r=Math.PI/180,dLa=(b.la-a.la)*r,dLo=(b.lo-a.lo)*r,x=Math.sin(dLa/2)**2+Math.cos(a.la*r)*Math.cos(b.la*r)*Math.sin(dLo/2)**2;return 2*6371000*Math.asin(Math.sqrt(x))}
 let watch=null;
 function gpsOn(){if(watch!==null)return;if(!navigator.geolocation){gpsState='kein GPS';return}gpsState='GPS sucht …';
-  try{watch=navigator.geolocation.watchPosition(onPos,e=>{gpsState=e.code===1?'GPS nicht erlaubt':'GPS ohne Signal';render()},{enableHighAccuracy:true,maximumAge:0,timeout:30000})}catch(e){gpsState='GPS nicht erlaubt'}}
+  try{watch=navigator.geolocation.watchPosition(onPos,e=>{gpsState=e.code===1?'GPS nicht erlaubt':'GPS ohne Signal';render();drawMap()},{enableHighAccuracy:true,maximumAge:0,timeout:30000})}catch(e){gpsState='GPS nicht erlaubt'}}
 function gpsOff(){try{if(watch!==null)navigator.geolocation.clearWatch(watch)}catch(e){}watch=null;lastPt=null}
 function onPos(p){const c=p.coords;gpsState='GPS ±'+Math.round(c.accuracy)+' m';
-  if(stage!=='active'||paused){lastPt=null;return}if(c.accuracy>35)return;
-  const pt={la:c.latitude,lo:c.longitude};if(!lastPt){lastPt=pt;return}
-  const d=hav(lastPt,pt);if(d<Math.max(4,c.accuracy*.4))return;
-  const id=where().id;dist[id]=(dist[id]||0)+d;lastPt=pt}
+  pos={la:c.latitude,lo:c.longitude,acc:c.accuracy};
+  if(stage!=='active'||paused){lastPt=null;drawMap();return}
+  if(c.accuracy>35){drawMap();return}
+  const pt={la:c.latitude,lo:c.longitude},w=where(),kind=w.k==='run'||w.k==='walk'?w.k:'warm';
+  if(!lastPt){lastPt=pt;track.push([+pt.la.toFixed(6),+pt.lo.toFixed(6),kind,1]);drawMap();return}
+  const d=hav(lastPt,pt);if(d<Math.max(4,c.accuracy*.4)){drawMap();return}
+  dist[w.id]=(dist[w.id]||0)+d;lastPt=pt;track.push([+pt.la.toFixed(6),+pt.lo.toFixed(6),kind,0]);drawMap()}
+
+/* ================= Karte ================= */
+let track=[],pos=null,map=null,layer=null,me=null,accC=null,drawn=-1,follow=true,lastTrackKey='';
+const COL={run:'#ff5a1f',walk:'#2457e6',warm:'#6b7280'};
+function shownTrack(){return stage==='ready'?(lastRun&&lastRun.track||[]):track}
+function initMap(){
+  if(map||!window.L)return!!map;
+  map=L.map('map',{zoomControl:false,attributionControl:true}).setView([51.19,6.44],15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+  layer=L.layerGroup().addTo(map);
+  map.on('dragstart',()=>{follow=false});
+  return true;
+}
+function drawMap(){
+  if($('v-map').hidden)return;
+  const t=shownTrack(),key=(stage==='ready'?'last':'cur')+t.length;
+  if(map&&key!==lastTrackKey){
+    lastTrackKey=key;layer.clearLayers();let seg=null,kind='';
+    t.forEach(p=>{if(p[3]||p[2]!==kind||!seg){const prev=seg&&!p[3]?seg.getLatLngs().slice(-1):[];seg=L.polyline(prev,{color:COL[p[2]]||COL.warm,weight:6,opacity:.9}).addTo(layer);kind=p[2]}seg.addLatLng([p[0],p[1]])});
+    if(drawn<0&&!pos&&t.length>1){map.fitBounds(L.latLngBounds(t.map(p=>[p[0],p[1]])),{padding:[40,40]})}
+    drawn=t.length;
+  }
+  if(map&&pos){const ll=[pos.la,pos.lo];
+    if(!me){accC=L.circle(ll,{radius:pos.acc,color:'#2457e6',weight:1,fillOpacity:.12}).addTo(map);me=L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:'#2457e6',fillOpacity:1}).addTo(map);map.setView(ll,17)}
+    else{me.setLatLng(ll);accC.setLatLng(ll).setRadius(pos.acc);if(follow)map.panTo(ll,{animate:true})}}
+  const z=summ(stage==='ready'?[]:segments());
+  $('mapinfo').innerHTML=(stage==='ready'?(t.length?'Letzte Strecke':'Karte'):km(z.dist))+'<small>'+(pos?'Genauigkeit ±'+Math.round(pos.acc)+' m':gpsState||'GPS startet …')+'</small>';
+  const note=!window.L?'Die Karte konnte nicht geladen werden. Bitte Internetverbindung prüfen.':gpsState==='GPS nicht erlaubt'?'Standort ist nicht freigegeben. Bitte in den Handy-Einstellungen erlauben.':pos&&pos.acc>30?'Das Signal ist gerade ungenau (z. B. drinnen oder zwischen hohen Häusern). Draußen mit freiem Himmel wird es meist nach 1–2 Minuten genauer.':'';
+  $('mapnote').hidden=!note;$('mapnote').textContent=note;
+}
 
 /* ================= Anzeige Training ================= */
 function render(){
@@ -454,7 +504,10 @@ let holdT=null;const hold=$('hold');
 hold.addEventListener('pointerdown',e=>{e.preventDefault();hold.classList.add('on');holdT=setTimeout(()=>{$('lock').hidden=true;hold.classList.remove('on')},1200)});
 ['pointerup','pointerleave','pointercancel'].forEach(ev=>hold.addEventListener(ev,()=>{clearTimeout(holdT);hold.classList.remove('on')}));
 $('lock').addEventListener('contextmenu',e=>e.preventDefault());
-function show(v){document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!=='v-'+v);document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v===v));if(v==='res')renderRes();window.scrollTo(0,0)}
+function show(v){document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!=='v-'+v);document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v===v));if(v==='res')renderRes();window.scrollTo(0,0);
+  if(v==='map'){initMap();follow=true;lastTrackKey='';if(stage!=='active')gpsOn();setTimeout(()=>{if(map){map.invalidateSize();drawMap()}},60)}
+  else if(stage!=='active'&&watch!==null)gpsOff()}
+$('center').addEventListener('click',()=>{follow=true;if(map&&pos)map.setView([pos.la,pos.lo],Math.max(map.getZoom(),16))});
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>show(b.dataset.v)));
 function fill(){$('run-m').value=Math.floor(S.run/60);$('run-s').value=S.run%60;$('walk-m').value=Math.floor(S.walk/60);$('walk-s').value=S.walk%60;$('count').value=S.count;$('warm').value=S.warm;
   $('tot').textContent=fmt(S.count*S.run+(S.count-1)*S.walk);$('snd').value=S.snd;['tick','vib','voice'].forEach(k=>$(k).checked=!!S[k])}
