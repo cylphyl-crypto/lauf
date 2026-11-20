@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Intervall-Lauf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: sporty, calm, readable at arm's length while out of breath
+   IDEA: a running watch – the whole screen is one colour field: orange = laufen, blue = gehen, slate = ein-/auslaufen
+   PICTURE: giant phase word and countdown, a timeline strip of all intervals underneath
+   COLOUR and TYPE: signal orange #ff5a1f, track blue #2457e6, slate #22262d; Barlow Condensed numerals
+   LAYOUT: three tabs – Training (full screen), Auswertung, Einstellungen; bottom navigation */
+:root{color-scheme:light dark;--bg:light-dark(#f3f1ec,#141619);--ink:light-dark(#16181c,#f1efe9);--card:light-dark(#fff,#1f2227);--line:light-dark(#dedad2,#33373e);--muted:light-dark(#5e626a,#a3a8b0);--run:#ff5a1f;--walk:#2457e6}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Barlow,system-ui,sans-serif;overflow-x:clip;padding-bottom:calc(66px + env(safe-area-inset-bottom))}
+[hidden]{display:none!important}
+button{font:700 17px Barlow,sans-serif;min-height:48px;border-radius:14px;cursor:pointer;touch-action:manipulation;padding:0 14px;color:inherit;background:transparent;border:2px solid var(--line)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #ffb21f;outline-offset:2px}
+button:disabled{opacity:.35;cursor:default}
+
+/* ---------- Training ---------- */
+#train{--f:#22262d;background:var(--f);color:#fff;min-height:calc(100svh - 66px);display:flex;flex-direction:column;padding:16px max(5vw,16px) 16px;transition:background .4s}
+body.run #train{--f:var(--run)}body.walk #train{--f:var(--walk)}body.paused #train{--f:#5d626c}body.done #train{--f:#15171b}
+.top{display:flex;justify-content:space-between;gap:12px;font-weight:700;font-size:17px}
+.top span:last-child{font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9}
+.mid{flex:1;display:flex;flex-direction:column;justify-content:center;text-align:center;padding:8px 0;max-width:640px;width:100%;margin:0 auto}
+#ph{font:800 clamp(40px,13vw,76px)/1 'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:.02em}
+#tm{font:600 clamp(96px,34vw,200px)/.95 'Barlow Condensed',sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}
+#nx{font-size:18px;opacity:.92;min-height:27px;text-wrap:balance}
+.bar{display:flex;align-items:flex-end;gap:2px;height:18px;margin:18px 0 6px}
+.bar i{position:relative;flex:1 1 0;height:100%;border-radius:3px;background:rgba(255,255,255,.28);overflow:hidden}
+.bar i.walk{height:45%}.bar i.ok{background:#fff}
+.bar i b{position:absolute;inset:0 auto 0 0;background:#fff}
+#gps{font:600 20px 'Barlow Condensed',sans-serif;opacity:.95;font-variant-numeric:tabular-nums;min-height:28px}
+#gps small{font:400 14px Barlow,sans-serif;opacity:.85;margin-left:6px;white-space:nowrap}
+#note{font-size:14px;background:rgba(0,0,0,.22);border-radius:12px;padding:8px 12px;margin:8px 0 0;text-align:left}
+.act{display:grid;grid-template-columns:1.25fr 1fr;gap:10px;max-width:640px;width:100%;margin:12px auto 0}
+.act.one{grid-template-columns:1fr}
+#main{min-height:76px;font-size:24px;background:#fff;color:var(--f);border-color:#fff}
+body.ready #main{background:var(--run);border-color:var(--run);color:#fff}
+#alt{min-height:76px;font-size:19px;border-color:#fff;color:#fff}
+.small{display:flex;justify-content:space-between;gap:10px;max-width:640px;width:100%;margin:10px auto 0}
+.small button{min-height:44px;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:15px}
+
+/* ---------- Taschenmodus ---------- */
+#lock{position:fixed;inset:0;z-index:20;background:#000;color:#8b8f97;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:24px;touch-action:none;user-select:none;-webkit-user-select:none}
+#lph{font:800 44px/1 'Barlow Condensed',sans-serif;text-transform:uppercase}
+#ltm{font:600 120px/1 'Barlow Condensed',sans-serif;font-variant-numeric:tabular-nums}
+#lph.run{color:#ff8a5c}#lph.walk{color:#7f9dff}
+#hold{margin-top:40px;width:220px;min-height:64px;border-color:#444;color:#aaa;position:relative;overflow:hidden}
+#hold i{position:absolute;inset:0 auto 0 0;width:0;background:#333;z-index:-1}
+#hold.on i{width:100%;transition:width 1.2s linear}
+
+/* ---------- Seiten ---------- */
+.page{padding:22px max(5vw,16px) 30px}
+.wrap{max-width:620px;margin:0 auto}
+h2{font:800 30px/1.1 'Barlow Condensed',sans-serif;margin:0 0 14px;text-wrap:balance}
+h3{font:800 22px/1.1 'Barlow Condensed',sans-serif;margin:26px 0 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+h3 button{min-height:44px;font-size:15px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:4px 16px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border:0}
+.lab b{display:block;font-size:17px}.lab small{display:block;color:var(--muted);font-size:13px}
+.mmss{display:flex;align-items:center;gap:4px;flex:none;font:600 24px 'Barlow Condensed',sans-serif}
+.mmss input{width:62px;height:50px;text-align:center;font:600 24px 'Barlow Condensed',sans-serif;border:2px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);-moz-appearance:textfield}
+.mmss input::-webkit-inner-spin-button{-webkit-appearance:none}
+.mmss small{font:400 12px Barlow,sans-serif;color:var(--muted);margin:0 4px 0 1px}
+select{font:16px Barlow,sans-serif;min-height:46px;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink);padding:0 10px;max-width:190px}
+.sw{position:relative;display:inline-block;width:56px;height:32px;flex:none}
+.sw input{position:absolute;opacity:0;inset:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:1}
+.sw span{position:absolute;inset:0;border-radius:20px;background:var(--line);transition:.2s}
+.sw span::after{content:"";position:absolute;left:4px;top:4px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.sw input:checked+span{background:var(--run)}.sw input:checked+span::after{transform:translateX(24px)}
+.tb{display:flex;gap:8px;flex-wrap:wrap;padding:12px 0}.tb button{min-height:44px;font-size:15px}
+fieldset{border:0;padding:0;margin:0}
+.hint{color:var(--muted);font-size:14px;margin:10px 0 0}
+.tips{color:var(--muted);font-size:14px;padding-left:18px;margin:14px 0 0}.tips li{margin-bottom:5px}
+
+/* ---------- Auswertung ---------- */
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.stats div{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+.stats span{display:block;font-size:13px;color:var(--muted)}
+.stats b{display:block;font:600 clamp(26px,8vw,34px)/1.1 'Barlow Condensed',sans-serif;white-space:nowrap;font-variant-numeric:tabular-nums}
+.stats small{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.stats .r{border-top:5px solid var(--run)}.stats .w{border-top:5px solid var(--walk)}
+.share{display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--walk);margin:4px 0 6px}.share i{background:var(--run)}
+.legend{font-size:14px;margin:0 0 12px;color:var(--muted)}
+#cmp{font-weight:700;margin:0 0 12px}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{padding:9px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:13px;color:var(--muted);font-weight:600;text-align:right}th:first-child,td:first-child{text-align:left}
+td{text-align:right;font-variant-numeric:tabular-nums}
+tr.run td:first-child{box-shadow:inset 4px 0 var(--run);padding-left:10px}
+tr.walk td:first-child{box-shadow:inset 4px 0 var(--walk);padding-left:10px}
+tr.sum td{font-weight:700}tr:last-child td{border-bottom:0}
+.fig{position:relative;height:220px;background:var(--card);border:1px solid var(--line);border-radius:16px;margin-bottom:10px}
+.fig svg{position:absolute;inset:0;width:100%;height:100%}
+.fig text{font:13px Barlow,sans-serif;fill:var(--muted)}
+details{margin-top:12px}summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;align-items:center}
+textarea{width:100%;min-height:90px;font:14px/1.4 monospace;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:10px}
+.empty{color:var(--muted)}
+
+/* ---------- Navigation ---------- */
+nav{position:fixed;left:0;right:0;bottom:0;z-index:10;display:grid;grid-template-columns:repeat(3,1fr);background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{border:0;border-radius:0;min-height:62px;font-size:15px;color:var(--muted)}
+nav button[aria-selected=true]{color:var(--ink);box-shadow:inset 0 3px var(--run)}
+@media (max-width:420px){table{font-size:13px}th,td{padding:8px 4px}.mmss input{width:54px}.segt tr>:nth-child(5){display:none}}
+@media (prefers-reduced-motion:reduce){#train,.sw span,.sw span::after,#hold.on i{transition:none}}
+</style>
+</head>
+<body class="ready">
+
+<section id="v-train" class="view">
+  <div id="train">
+    <div class="top"><span id="tl">Bereit</span><span id="tr"></span></div>
+    <div class="mid" aria-live="polite">
+      <div id="ph">Bereit</div>
+      <div id="tm">0:00</div>
+      <div id="nx"></div>
+      <div class="bar" id="bar" aria-hidden="true"></div>
+      <div id="gps"></div>
+      <div id="note" hidden></div>
+    </div>
+    <div class="act" id="act"><button id="main" type="button">Start</button><button id="alt" type="button" hidden></button></div>
+    <div class="small" id="small"><button id="reset" type="button">Neu</button><button id="pocket" type="button">Taschenmodus</button></div>
+  </div>
+</section>
+
+<section id="v-res" class="view page" hidden>
+  <div class="wrap">
+    <h2 id="restitle">Auswertung</h2>
+    <p class="empty" id="resempty">Nach dem ersten Training steht hier die Auswertung.</p>
+    <div id="resbox" hidden>
+      <div id="statbox"></div>
+      <h3><span>Abschnitte</span><button id="copy" type="button">Kopieren</button></h3>
+      <div class="card scroll"><table class="segt"><thead><tr><th>Abschnitt</th><th>Zeit</th><th>Strecke</th><th>Tempo</th><th>km/h</th></tr></thead><tbody id="res"></tbody></table></div>
+      <p class="hint" id="resnote"></p>
+    </div>
+    <div id="histbox" hidden>
+      <h3>Eure Entwicklung</h3>
+      <div class="fig" id="fig"><svg id="chart" role="img" aria-label="Lauf- und Gehgeschwindigkeit pro Training"></svg></div>
+      <p class="hint" id="histmsg"></p>
+      <div class="card scroll"><table><thead><tr><th>Datum</th><th>Strecke</th><th>Zeit</th><th>Lauf-Tempo</th><th>Geh-Tempo</th><th>Lauf-Anteil</th></tr></thead><tbody id="hist"></tbody></table></div>
+      <details><summary>Sicherung</summary>
+        <p class="hint">Der Verlauf ist nur in diesem Browser gespeichert. Kopiere die Sicherung ab und zu in eine Notiz, und spiel sie auf einem neuen Handy hier wieder ein.</p>
+        <textarea id="backup" aria-label="Sicherung"></textarea>
+        <div class="tb"><button id="bcopy" type="button">Sicherung kopieren</button><button id="bload" type="button">Sicherung einspielen</button><button id="bdel" type="button">Letztes Training löschen</button></div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section id="v-set" class="view page" hidden>
+  <div class="wrap">
+    <h2>Einstellungen</h2>
+    <fieldset id="fs">
+    <div class="card">
+      <div class="row"><div class="lab"><b>Laufen</b><small>Dauer pro Laufeinheit</small></div><div class="mmss"><input id="run-m" type="number" inputmode="numeric" min="0" max="59" aria-label="Laufen Minuten"><small>min</small><input id="run-s" type="number" inputmode="numeric" min="0" max="59" aria-label="Laufen Sekunden"><small>s</small></div></div>
+      <div class="row"><div class="lab"><b>Gehen</b><small>Dauer pro Pause</small></div><div class="mmss"><input id="walk-m" type="number" inputmode="numeric" min="0" max="59" aria-label="Gehen Minuten"><small>min</small><input id="walk-s" type="number" inputmode="numeric" min="0" max="59" aria-label="Gehen Sekunden"><small>s</small></div></div>
+      <div class="row"><div class="lab"><b>Runden</b><small>Anzahl Laufeinheiten</small></div><div class="mmss"><input id="count" type="number" inputmode="numeric" min="1" max="50" aria-label="Runden"></div></div>
+      <div class="row"><div class="lab"><b>Einlaufen</b><small>Hinweiston nach … Minuten (0 = aus)</small></div><div class="mmss"><input id="warm" type="number" inputmode="numeric" min="0" max="60" aria-label="Einlaufen Minuten"><small>min</small></div></div>
+    </div>
+    </fieldset>
+    <p class="hint" id="fsnote">Intervall-Dauer: <b id="tot"></b></p>
+
+    <h3>Töne</h3>
+    <div class="card">
+      <div class="row"><div class="lab"><b>Klang</b><small>Für Laufen, Gehen und Ende</small></div><select id="snd"><option value="bell">Glocken</option><option value="mar">Marimba</option><option value="horn">Kräftig (für laute Straßen)</option></select></div>
+      <div class="tb"><button type="button" data-cue="run">▶ Laufen</button><button type="button" data-cue="walk">▶ Gehen</button><button type="button" data-cue="tick">▶ Countdown</button><button type="button" data-cue="done">▶ Ende</button></div>
+      <div class="row"><div class="lab"><b>Countdown</b><small>Leise Klicks in den letzten 3 Sekunden</small></div><label class="sw"><input type="checkbox" id="tick"><span></span></label></div>
+      <div class="row"><div class="lab"><b>Vibration</b><small>Nur Android, nur bei an­gelassenem Bildschirm</small></div><label class="sw"><input type="checkbox" id="vib"><span></span></label></div>
+    </div>
+
+    <h3>Stimme</h3>
+    <div class="card">
+      <div class="row"><div class="lab"><b>Sprachansage</b><small>Zusätzlich zu den Tönen, nur bei an­gelassenem Bildschirm</small></div><label class="sw"><input type="checkbox" id="voice"><span></span></label></div>
+      <div class="row"><div class="lab"><b>Stimme</b><small id="vhint">Stimmen des Handys</small></div><select id="vname"></select></div>
+      <div class="tb"><button type="button" id="vtest">▶ Stimme testen</button></div>
+    </div>
+    <ul class="tips">
+      <li><b>Bildschirm aus:</b> Alle Töne werden beim Start der Intervalle im Voraus eingeplant und kommen auch bei gesperrtem Handy. Bitte einmal zu Hause testen: Intervalle starten, Handy sperren, warten.</li>
+      <li><b>Taschenmodus:</b> Bildschirm bleibt an (nötig fürs GPS), Berührungen in der Tasche werden ignoriert. Zum Entsperren gedrückt halten.</li>
+      <li><b>Stimme:</b> Auf dem iPhone klingen die Stimmen mit „Premium“ oder „Erweitert“ am besten. Laden kannst du sie unter Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen → Deutsch.</li>
+      <li>Lautstärke hoch, beim iPhone den Stummschalter aus.</li>
+    </ul>
+  </div>
+</section>
+
+<div id="lock" hidden><div id="lph"></div><div id="ltm"></div><div id="lnx"></div><button id="hold" type="button"><i></i>Gedrückt halten zum Entsperren</button></div>
+
+<nav role="tablist"><button type="button" role="tab" data-v="train" aria-selected="true">Training</button><button type="button" role="tab" data-v="res" aria-selected="false">Auswertung</button><button type="button" role="tab" data-v="set" aria-selected="false">Einstellungen</button></nav>
+
+<script>
+{
+const $=id=>document.getElementById(id);
+const S={warm:10,run:120,walk:100,count:10,tick:true,voice:false,vname:'',vib:true,snd:'bell'};
+try{const o=JSON.parse(localStorage.getItem('intervall-lauf')||'{}');['warm','run','walk','count'].forEach(k=>{if(typeof o[k]==='number')S[k]=o[k]});Object.assign(S,JSON.parse(localStorage.getItem('intervall-lauf-2')||'{}'))}catch(e){}
+const save=()=>{try{localStorage.setItem('intervall-lauf-2',JSON.stringify(S))}catch(e){}};
+const fmt=s=>{s=Math.max(0,Math.floor(s+1e-6));const h=Math.floor(s/3600),m=Math.floor(s/60)%60,x=String(s%60).padStart(2,'0');return h?h+':'+String(m).padStart(2,'0')+':'+x:m+':'+x};
+const cfmt=s=>fmt(Math.ceil(s-1e-6));
+const km=m=>(m/1000).toFixed(2).replace('.',',')+' km';
+const pace=(ms,d)=>d<20?'–':fmt(ms/d)+' /km';
+const kmh=(ms,d)=>d<20||ms<1?'–':(d/1000/(ms/3600000)).toFixed(1).replace('.',',');
+const pct=x=>Math.round(x*100)+' %';
+const day=t=>new Date(t).toLocaleDateString('de-DE',{day:'numeric',month:'numeric',year:'2-digit'});
+
+/* ================= Klänge ================= */
+const SR=44100,BUF={};let ctx=null,master=null,sched=[],silentEl=null,baking=null;
+const PARTS={bell:[[1,1,1],[2,.45,.55],[2.76,.32,.4],[4.07,.18,.28],[5.4,.1,.18]],mar:[[1,1,1],[3.99,.32,.14],[9.2,.08,.04]],horn:[[1,1,1],[2,.6,.9],[3,.4,.8],[4,.25,.7],[5,.15,.6]],wood:[[1,1,1],[2.3,.5,.45]]};
+const CUES={
+  run:n=>{n(659,0,.55,1.1);n(831,.13,.55,1.1);n(988,.26,.6,1.1);n(1319,.42,.9,2.2);return 2.9},
+  walk:n=>{n(988,0,.8,1.9);n(659,.5,.85,2.6);return 3.4},
+  warm:n=>{n(784,0,.6,1.5);n(784,.5,.6,1.9);return 2.6},
+  done:n=>{[523,659,784,1047].forEach((f,i)=>n(f,i*.13,.5,1));[523,659,784,1047].forEach(f=>n(f,.62,.32,3.2));return 4.3},
+  tick:n=>{n(1150,0,.7,.14);return .35}
+};
+function imp(oc){const n=Math.floor(SR*1.3),b=oc.createBuffer(2,n,SR);for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3)}return b}
+async function bakeOne(name,style){
+  const O=window.OfflineAudioContext||window.webkitOfflineAudioContext,oc=new O(1,SR*5,SR);
+  const comp=oc.createDynamicsCompressor();comp.threshold.value=-20;comp.ratio.value=3;comp.connect(oc.destination);
+  const dry=oc.createGain();dry.connect(comp);const rev=oc.createConvolver();rev.buffer=imp(oc);const wet=oc.createGain();wet.gain.value=style==='horn'?.12:.24;dry.connect(rev);rev.connect(wet);wet.connect(comp);
+  const parts=name==='tick'?PARTS.wood:PARTS[style];
+  const len=CUES[name]((f,t,v,dec)=>{parts.forEach(([r,a,dm])=>{const o=oc.createOscillator(),g=oc.createGain(),e=t+dec*dm,att=style==='horn'&&name!=='tick'?.03:.005;
+    o.type=style==='horn'&&name!=='tick'&&r===1?'triangle':'sine';o.frequency.value=f*r;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(v*a,t+att);g.gain.exponentialRampToValueAtTime(.0001,e);o.connect(g);g.connect(dry);o.start(t);o.stop(e+.05)})});
+  const buf=await new Promise((res,rej)=>{oc.oncomplete=e=>res(e.renderedBuffer);const p=oc.startRendering();if(p&&p.then)p.then(res,rej)});
+  const n=Math.min(buf.length,Math.ceil((len+.6)*SR)),src=buf.getChannelData(0);let pk=0;for(let i=0;i<n;i++)pk=Math.max(pk,Math.abs(src[i]));
+  const gain=(name==='tick'?.55:.97)/(pk||1),out=new AudioBuffer({length:n,sampleRate:SR,numberOfChannels:1}),d=out.getChannelData(0);
+  for(let i=0;i<n;i++)d[i]=src[i]*gain*(i>n-2000?(n-i)/2000:1);
+  BUF[name]=out;
+}
+function bake(){baking=Promise.all(Object.keys(CUES).map(k=>bakeOne(k,S.snd))).catch(()=>{});return baking}
+function audioInit(){
+  if(!ctx){const A=window.AudioContext||window.webkitAudioContext;if(!A)return;ctx=new A();master=ctx.createGain();master.connect(ctx.destination);
+    try{if(navigator.audioSession)navigator.audioSession.type='playback'}catch(e){}
+    const o=ctx.createOscillator(),g=ctx.createGain();g.gain.value=.0001;o.connect(g);g.connect(ctx.destination);o.start()}
+  if(ctx.state!=='running')ctx.resume().catch(()=>{});
+}
+function silentWav(){const n=8000,b=new ArrayBuffer(44+n*2),v=new DataView(b),w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};
+  w(0,'RIFF');v.setUint32(4,36+n*2,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,8000,true);v.setUint32(28,16000,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*2,true);
+  for(let i=0;i<n;i++)v.setInt16(44+i*2,i%2?1:-1,true);return new Blob([b],{type:'audio/wav'})}
+function silentPlay(){try{if(!silentEl){silentEl=new Audio(URL.createObjectURL(silentWav()));silentEl.loop=true;silentEl.setAttribute('playsinline','')}silentEl.play().catch(()=>{})}catch(e){}}
+function silentStop(){try{silentEl&&silentEl.pause()}catch(e){}}
+function at(name,t,keep){if(!ctx||!BUF[name])return;const s=ctx.createBufferSource();s.buffer=BUF[name];s.connect(master);s.start(Math.max(t,ctx.currentTime));if(!keep)sched.push({s,t})}
+function cancelFrom(t){sched=sched.filter(x=>{if(x.t>=t-.001){try{x.s.stop()}catch(e){}return false}return true})}
+function preview(name){audioInit();(baking||Promise.resolve()).then(()=>at(name,ctx.currentTime+.05,true))}
+
+/* ================= Stimme ================= */
+let voices=[];
+function loadVoices(){
+  if(!('speechSynthesis'in window)){$('vhint').textContent='Auf diesem Gerät nicht verfügbar';return}
+  voices=speechSynthesis.getVoices().filter(v=>/^de/i.test(v.lang));
+  const score=v=>(/premium|enhanced|erweitert|neural|natural|online/i.test(v.name)?10:0)+(/google/i.test(v.name)?5:0)+(/anna|petra|helena|markus|yannick|katja|conrad/i.test(v.name)?2:0)-(/compact|eloquence|grandma|grandpa|shelley|rocko|sandy|flo|reed|eddy/i.test(v.name)?6:0);
+  voices.sort((a,b)=>score(b)-score(a));
+  $('vname').innerHTML=voices.length?voices.map(v=>'<option>'+v.name.replace(/</g,'')+'</option>').join(''):'<option value="">Keine deutsche Stimme</option>';
+  if(S.vname&&voices.some(v=>v.name===S.vname))$('vname').value=S.vname;
+}
+function say(t,delay){if(!S.voice||!('speechSynthesis'in window)||document.hidden)return;setTimeout(()=>{try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t),v=voices.find(x=>x.name===$('vname').value)||voices[0];if(v)u.voice=v;u.lang='de-DE';u.rate=1;speechSynthesis.speak(u)}catch(e){}},delay||0)}
+const vib=p=>{if(S.vib&&navigator.vibrate)try{navigator.vibrate(p)}catch(e){}};
+
+/* ================= Training ================= */
+let stage='ready',paused=false,aStart=0,wStart=0,ivA=0,plan=[],pausedMs=0,pauseWall=0,endA=0,endWall=0,dist={},lastPt=null,lastKey='',warmSaid=false,timer=null,lock=null,wlOk=false,gpsState='',bgNote='';
+let lastRun=null,hist=[];
+try{lastRun=JSON.parse(localStorage.getItem('intervall-lauf-letztes')||'null')}catch(e){}
+try{hist=JSON.parse(localStorage.getItem('intervall-lauf-verlauf')||'[]');if(!Array.isArray(hist))hist=[]}catch(e){}
+const saveHist=()=>{try{localStorage.setItem('intervall-lauf-verlauf',JSON.stringify(hist))}catch(e){}};
+const nowA=()=>stage==='done'?endA:(ctx?ctx.currentTime:0);
+const ivEnd=()=>{const l=plan[plan.length-1];return l?l.at+l.d:0};
+function buildPlan(t){plan=[];for(let i=1;i<=S.count;i++){plan.push({t:'run',n:i,at:t,d:S.run});t+=S.run;if(i<S.count&&S.walk>0){plan.push({t:'walk',n:i,at:t,d:S.walk});t+=S.walk}}}
+function retime(j){for(;j<plan.length;j++)plan[j].at=j?plan[j-1].at+plan[j-1].d:ivA}
+function scheduleFrom(t){
+  const bounds=plan.map(p=>p.at).concat(ivEnd());
+  plan.forEach(p=>{if(p.at>=t-.001)at(p.t,p.at)});
+  if(ivEnd()>=t-.001)at('done',ivEnd());
+  if(S.tick)bounds.forEach((b,i)=>{const prev=i?bounds[i-1]:t;[3,2,1].forEach(k=>{const x=b-k;if(x>=t&&x>prev+.5)at('tick',x)})});
+}
+function where(){
+  const now=nowA();
+  if(!ivA)return{k:'warm',id:'warm',el:now-aStart};
+  if(now<ivA)return{k:'pre',id:'warm',left:ivA-now,el:now-aStart};
+  for(let j=0;j<plan.length;j++){const p=plan[j];if(now<p.at+p.d)return{k:p.t,id:j,j,p,left:p.at+p.d-now,el:now-p.at}}
+  return{k:'cool',id:'cool',el:now-ivEnd()};
+}
+function segments(){
+  if(!aStart&&stage==='ready')return[];
+  const now=nowA(),out=[{id:'warm',type:'warm',label:'Einlaufen',ms:((ivA?Math.min(ivA,now):now)-aStart)*1000}];
+  if(ivA){plan.forEach((p,j)=>{if(now>p.at)out.push({id:j,type:p.t,label:(p.t==='run'?'Lauf ':'Gehen ')+p.n,ms:(Math.min(now,p.at+p.d)-p.at)*1000})});
+    if(now>ivEnd())out.push({id:'cool',type:'cool',label:'Auslaufen',ms:(now-ivEnd())*1000})}
+  out.forEach(s=>s.dist=dist[s.id]||0);return out;
+}
+function wallMs(){return(stage==='done'?endWall:Date.now())-wStart}
+function begin(){
+  audioInit();silentPlay();reset(true);
+  stage='active';aStart=ctx.currentTime;wStart=Date.now();
+  baking.then(()=>{if(S.warm>0&&stage==='active'&&!ivA)at('warm',aStart+S.warm*60)});
+  gpsOn();lockOn();mediaSession();timer=setInterval(tick,200);at('tick',aStart+.05,true);say('Los geht es. Einlaufen.',300);render();
+}
+function startIntervals(){
+  if(paused)togglePause();
+  const now=ctx.currentTime;cancelFrom(now);ivA=now+5;buildPlan(ivA);scheduleFrom(now);say('Intervalle starten gleich.');render();
+}
+function skip(){
+  const w=where(),now=ctx.currentTime;if(paused)return;
+  if(w.k==='warm')return startIntervals();
+  if(w.k==='cool')return finish();
+  cancelFrom(now);
+  if(w.k==='pre'){const sh=ivA-now;ivA=now;plan.forEach(p=>p.at-=sh)}else{w.p.d=now-w.p.at;retime(w.j+1)}
+  scheduleFrom(now);tick();
+}
+function togglePause(){
+  if(stage!=='active')return;
+  if(paused){paused=false;pausedMs+=Date.now()-pauseWall;audioInit();silentPlay();lockOn()}
+  else{paused=true;pauseWall=Date.now();lastPt=null;try{speechSynthesis.cancel()}catch(e){}ctx.suspend().catch(()=>{});silentStop()}
+  try{navigator.mediaSession.playbackState=paused?'paused':'playing'}catch(e){}
+  render();
+}
+function finish(){
+  if(paused){pausedMs+=Date.now()-pauseWall;paused=false;audioInit()}
+  endA=ctx.currentTime;endWall=Date.now();cancelFrom(0);stage='done';
+  const segs=segments(),z=summ(segs),pMs=Math.max(0,wallMs()-z.ms);
+  lastRun={date:Date.now(),segs,pMs};try{localStorage.setItem('intervall-lauf-letztes',JSON.stringify(lastRun))}catch(e){}
+  if(z.ms>60000){hist.push({date:Date.now(),ms:z.ms,dist:z.dist,rMs:z.r.ms,rDist:z.r.dist,wMs:z.w.ms,wDist:z.w.dist,pMs,count:S.count,run:S.run,walk:S.walk});saveHist()}
+  clearInterval(timer);gpsOff();lockOff();silentStop();at('warm',ctx.currentTime+.05,true);say('Training beendet. Gut gemacht!');
+  render();renderRes();
+}
+function reset(silent){
+  clearInterval(timer);cancelFrom(0);if(paused&&ctx)ctx.resume().catch(()=>{});
+  stage='ready';paused=false;aStart=0;ivA=0;plan=[];pausedMs=0;dist={};lastPt=null;lastKey='';warmSaid=false;bgNote='';
+  if(!silent){gpsOff();lockOff();silentStop();try{speechSynthesis.cancel()}catch(e){}gpsState=''}
+  render();
+}
+function tick(){
+  if(stage!=='active')return;
+  if(!paused&&ctx&&ctx.state!=='running'&&!document.hidden){ctx.resume().catch(()=>{})}
+  const w=where(),key=w.k+(w.j===undefined?'':w.j);
+  if(key!==lastKey){if(lastKey)announce(w);lastKey=key}
+  if(w.k==='warm'&&S.warm&&!warmSaid&&w.el>=S.warm*60){warmSaid=true;say(S.warm+' Minuten eingelaufen.',2200)}
+  render();if(!$('v-res').hidden)renderRes();
+}
+function announce(w){
+  if(w.k==='run'){vib([400,150,400]);say(w.p.n===S.count?'Letzte Runde. Laufen!':'Laufen. Runde '+w.p.n,1500)}
+  else if(w.k==='walk'){vib([900]);say('Gehen.',2000)}
+  else if(w.k==='cool'){vib([300,100,300,100,700]);say('Geschafft! Jetzt auslaufen.',2500)}
+}
+async function lockOn(){try{lock=await navigator.wakeLock.request('screen');wlOk=true}catch(e){lock=null;wlOk=false}render()}
+function lockOff(){try{if(lock)lock.release()}catch(e){}lock=null}
+function mediaSession(){try{const m=navigator.mediaSession;if(!m)return;m.metadata=new MediaMetadata({title:'Intervall-Lauf',artist:'Training läuft'});
+  m.setActionHandler('pause',()=>{if(!paused)togglePause()});m.setActionHandler('play',()=>{if(paused)togglePause()})}catch(e){}}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible'||stage!=='active')return;
+  if(!paused&&ctx&&ctx.state!=='running'){bgNote='Das Handy hat den Ton im Hintergrund angehalten. Er läuft jetzt weiter, die Zeit dazwischen zählt als Unterbrechung. Im Taschenmodus passiert das nicht.';ctx.resume().catch(()=>{})}
+  lockOn();tick();
+});
+
+/* ================= GPS ================= */
+function hav(a,b){const r=Math.PI/180,dLa=(b.la-a.la)*r,dLo=(b.lo-a.lo)*r,x=Math.sin(dLa/2)**2+Math.cos(a.la*r)*Math.cos(b.la*r)*Math.sin(dLo/2)**2;return 2*6371000*Math.asin(Math.sqrt(x))}
+let watch=null;
+function gpsOn(){if(watch!==null)return;if(!navigator.geolocation){gpsState='kein GPS';return}gpsState='GPS sucht …';
+  try{watch=navigator.geolocation.watchPosition(onPos,e=>{gpsState=e.code===1?'GPS nicht erlaubt':'GPS ohne Signal';render()},{enableHighAccuracy:true,maximumAge:0,timeout:30000})}catch(e){gpsState='GPS nicht erlaubt'}}
+function gpsOff(){try{if(watch!==null)navigator.geolocation.clearWatch(watch)}catch(e){}watch=null;lastPt=null}
+function onPos(p){const c=p.coords;gpsState='GPS ±'+Math.round(c.accuracy)+' m';
+  if(stage!=='active'||paused){lastPt=null;return}if(c.accuracy>35)return;
+  const pt={la:c.latitude,lo:c.longitude};if(!lastPt){lastPt=pt;return}
+  const d=hav(lastPt,pt);if(d<Math.max(4,c.accuracy*.4))return;
+  const id=where().id;dist[id]=(dist[id]||0)+d;lastPt=pt}
+
+/* ================= Anzeige Training ================= */
+function render(){
+  const act=stage==='active',w=act?where():null,k=w?w.k:stage;
+  document.body.className=(paused?'paused ':'')+(k==='pre'?'warm':k);
+  const segs=act||stage==='done'?segments():[],z=summ(segs);
+  $('tl').textContent=!act?(stage==='done'?'Training beendet':'Bereit'):w.p?'Runde '+w.p.n+' von '+S.count:{warm:'Vor den Intervallen',pre:'Gleich Runde 1',cool:'Alle '+S.count+' Runden geschafft'}[k];
+  $('tr').textContent=act||stage==='done'?'Gesamt '+fmt(wallMs()/1000):'';
+  $('ph').textContent=paused?'Pause':{ready:'Bereit',warm:'Einlaufen',pre:'Gleich geht’s los',run:'Laufen',walk:'Gehen',cool:'Auslaufen',done:'Fertig'}[k];
+  $('tm').textContent=k==='ready'?fmt(S.run):k==='done'?km(z.dist).replace(' km',''):(w.left!==undefined?cfmt(w.left):fmt(w.el));
+  let nx='';
+  if(k==='ready')nx='Einlaufen → '+S.count+' × '+fmt(S.run)+' laufen / '+fmt(S.walk)+' gehen → Auslaufen';
+  else if(k==='done')nx='km in '+fmt(wallMs()/1000)+' · Details unter „Auswertung“';
+  else if(paused)nx='Unterbrochen seit '+fmt((Date.now()-pauseWall)/1000)+' · Gesamtzeit läuft weiter';
+  else if(k==='warm')nx=S.warm&&w.el<S.warm*60?'Hinweiston bei '+S.warm+':00':'Bereit? „Intervalle starten“ tippen';
+  else if(k==='cool')nx='„Beenden“, wenn ihr angekommen seid';
+  else{const n=plan[(w.j===undefined?-1:w.j)+1];nx=k==='pre'?'Danach: Laufen '+fmt(S.run):n?'Danach: '+(n.t==='run'?'Laufen ':'Gehen ')+fmt(n.d):'Danach: Auslaufen'}
+  $('nx').textContent=nx;
+  const pl=plan.length?plan:Array.from({length:S.count*2-1},(_,i)=>({t:i%2?'walk':'run',d:i%2?S.walk:S.run})).filter(p=>p.d>0);
+  $('bar').innerHTML=pl.map((p,j)=>{let c=p.t,f=0;if(stage==='done'||(w&&(k==='cool'||(w.j!==undefined&&j<w.j))))c+=' ok';else if(w&&w.j===j)f=w.el/p.d*100;return '<i class="'+c+'" style="flex-grow:'+p.d+'">'+(f?'<b style="width:'+f.toFixed(1)+'%"></b>':'')+'</i>'}).join('');
+  const cur=act&&w.id!==undefined&&!paused?segs.find(s=>s.id===w.id):null;
+  $('gps').innerHTML=k==='ready'?'':km(z.dist)+(cur&&cur.ms>5000&&cur.dist>=20?' · '+pace(cur.ms,cur.dist):'')+(act&&gpsState?'<small>'+gpsState+'</small>':'');
+  const note=act?(bgNote||(!wlOk&&!paused?'Bildschirm kann ausgehen – die Töne sind trotzdem eingeplant. Für GPS den Taschenmodus nutzen.':'')):'';
+  $('note').hidden=!note;$('note').textContent=note;
+  $('main').textContent=stage==='ready'?'Start':stage==='done'?'Neues Training':paused?'Weiter':'Pause';
+  const alt=$('alt');alt.hidden=stage==='ready';$('act').classList.toggle('one',alt.hidden);
+  alt.textContent=stage==='done'?'Auswertung':k==='warm'?'Intervalle starten':k==='cool'?'Beenden':'Überspringen';alt.disabled=paused&&k!=='cool'&&k!=='warm';
+  $('reset').textContent=armed?'Wirklich neu?':'Neu';$('reset').hidden=stage==='ready';$('pocket').hidden=!act;
+  $('fs').disabled=act&&!!ivA;
+  if(!$('lock').hidden){$('lph').textContent=$('ph').textContent;$('lph').className=paused?'':k;$('ltm').textContent=$('tm').textContent;$('lnx').textContent=$('tl').textContent}
+}
+
+/* ================= Auswertung ================= */
+function summ(list){const r={ms:0,dist:0},w={ms:0,dist:0};list.forEach(s=>{const o=s.type==='run'?r:w;o.ms+=s.ms;o.dist+=s.dist});
+  const ms=r.ms+w.ms,dist=r.dist+w.dist;return{r,w,ms,dist,tS:ms?r.ms/ms:0,dS:dist>=20?r.dist/dist:null}}
+const row=(c,l,ms,d)=>'<tr class="'+c+'"><td>'+l+'</td><td>'+fmt(ms/1000)+'</td><td>'+km(d)+'</td><td>'+pace(ms,d)+'</td><td>'+kmh(ms,d)+'</td></tr>';
+function curList(){const live=stage!=='ready';return live?{segs:segments(),pMs:Math.max(0,wallMs()-summ(segments()).ms),live:stage==='active'}:lastRun?{segs:lastRun.segs,pMs:lastRun.pMs||0,date:lastRun.date}:null}
+function renderRes(){
+  const c=curList();$('resempty').hidden=!!c;$('resbox').hidden=!c;
+  if(c){const z=summ(c.segs);
+    $('restitle').textContent=c.live?'Auswertung – läuft gerade':c.date?'Letztes Training, '+day(c.date):'Ergebnis';
+    $('statbox').innerHTML='<div class="stats"><div><span>Gesamtstrecke</span><b>'+km(z.dist)+'</b></div><div><span>Gesamtzeit</span><b>'+fmt((z.ms+c.pMs)/1000)+'</b>'+(c.pMs>5000?'<small>davon '+fmt(c.pMs/1000)+' Unterbrechung</small>':'')+'</div>'
+      +'<div class="r"><span>Laufen</span><b>'+pace(z.r.ms,z.r.dist)+'</b><small>'+kmh(z.r.ms,z.r.dist)+' km/h · '+km(z.r.dist)+' · '+fmt(z.r.ms/1000)+'</small></div>'
+      +'<div class="w"><span>Gehen (mit Ein-/Auslaufen)</span><b>'+pace(z.w.ms,z.w.dist)+'</b><small>'+kmh(z.w.ms,z.w.dist)+' km/h · '+km(z.w.dist)+' · '+fmt(z.w.ms/1000)+'</small></div></div>'
+      +'<div class="share" aria-hidden="true"><i style="width:'+(z.tS*100).toFixed(1)+'%"></i></div>'
+      +'<p class="legend">Anteil Zeit: Laufen '+pct(z.tS)+' · Gehen '+pct(1-z.tS)+(z.dS!==null?'<br>Anteil Strecke: Laufen '+pct(z.dS)+' · Gehen '+pct(1-z.dS):'')+'</p>'+(stage==='done'?compare():'');
+    let h=c.segs.map(s=>row(s.type,s.label,s.ms,s.dist)).join('');
+    h+=row('sum','Alle Läufe',z.r.ms,z.r.dist)+row('sum','Alles Gehen',z.w.ms,z.w.dist)+row('sum','Gesamt (ohne Pausen)',z.ms,z.dist);
+    $('res').innerHTML=h;
+    $('resnote').textContent=z.dist<1?'Keine GPS-Daten: In der Claude-App ist der Standort gesperrt. Strecke und Tempo gibt es, sobald die Seite im Browser läuft.':'Tempo in Minuten pro Kilometer. Bei kurzen Abschnitten kann GPS ein paar Meter abweichen.'}
+  renderHist();
+}
+function compare(){const d=hist.filter(e=>e.rDist>=20);if(d.length<2)return'';
+  const a=d[d.length-1],b=d[d.length-2],diff=Math.round(b.rMs/b.rDist-a.rMs/a.rDist);
+  return '<p id="cmp">'+(Math.abs(diff)<2?'Lauftempo wie beim letzten Mal ('+day(b.date)+').':diff>0?'Ihr seid '+diff+' Sek./km schneller gelaufen als am '+day(b.date)+'!':'Lauftempo '+(-diff)+' Sek./km langsamer als am '+day(b.date)+'.')+'</p>'}
+function renderHist(){
+  $('histbox').hidden=!hist.length;if(!hist.length)return;
+  if(document.activeElement!==$('backup'))$('backup').value=JSON.stringify(hist);
+  $('hist').innerHTML=hist.slice().reverse().map(e=>'<tr><td>'+day(e.date)+'</td><td>'+km(e.dist)+'</td><td>'+fmt((e.ms+(e.pMs||0))/1000)+'</td><td>'+pace(e.rMs,e.rDist)+'</td><td>'+pace(e.wMs,e.wDist)+'</td><td>'+pct(e.ms?e.rMs/e.ms:0)+'</td></tr>').join('');
+  draw();
+}
+function draw(){
+  const sv=$('chart'),d=hist.filter(e=>e.rDist>=20);$('fig').hidden=d.length<2;
+  $('histmsg').textContent=d.length<2?'Ab dem zweiten Training mit GPS erscheint hier eure Kurve.':'Orange: Lauf-Geschwindigkeit, blau: Geh-Geschwindigkeit (km/h).';
+  const W=sv.clientWidth,H=sv.clientHeight;if(d.length<2||!W){sv.innerHTML='';return}
+  const sp=(m,t)=>m>=20&&t>0?(m/1000)/(t/3600000):null,vals=d.flatMap(e=>[sp(e.rDist,e.rMs),sp(e.wDist,e.wMs)]).filter(v=>v!==null);
+  const lo=Math.max(0,Math.floor(Math.min(...vals)-1)),hi=Math.ceil(Math.max(...vals)+1),L=34,R=14,T=14,B=28;
+  const x=i=>L+(W-L-R)*i/(d.length-1),y=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo));
+  let g='';const st=Math.max(1,Math.round((hi-lo)/4));
+  for(let v=lo;v<=hi;v+=st)g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="var(--line)"/><text x="'+(L-6)+'" y="'+(y(v)+4)+'" text-anchor="end">'+v+'</text>';
+  const line=(f,col)=>{const p=d.map((e,i)=>[x(i),f(e)]).filter(q=>q[1]!==null).map(q=>[q[0],y(q[1])]);
+    return '<polyline fill="none" stroke="'+col+'" stroke-width="3" stroke-linejoin="round" points="'+p.map(q=>q.join(',')).join(' ')+'"/>'+p.map(q=>'<circle cx="'+q[0]+'" cy="'+q[1]+'" r="4" fill="'+col+'"/>').join('')};
+  const every=Math.max(1,Math.ceil(d.length/(W<520?3:7)));
+  d.forEach((e,i)=>{if(i%every===0||i===d.length-1)g+='<text x="'+x(i)+'" y="'+(H-8)+'" text-anchor="'+(i===0?'start':i===d.length-1?'end':'middle')+'">'+new Date(e.date).toLocaleDateString('de-DE',{day:'numeric',month:'numeric'})+'</text>'});
+  sv.innerHTML=g+line(e=>sp(e.wDist,e.wMs),'#2457e6')+line(e=>sp(e.rDist,e.rMs),'#ff5a1f');
+}
+const ro=new ResizeObserver(draw);ro.observe($('fig'));
+
+/* ================= Bedienung ================= */
+let armed=false,armT=null;
+$('main').addEventListener('click',()=>{if(stage==='ready'||stage==='done')begin();else togglePause()});
+$('alt').addEventListener('click',()=>{audioInit();if(stage==='done')show('res');else skip()});
+$('reset').addEventListener('click',()=>{if(stage==='active'&&!armed){armed=true;render();armT=setTimeout(()=>{armed=false;render()},3000);return}clearTimeout(armT);armed=false;reset()});
+$('pocket').addEventListener('click',()=>{$('lock').hidden=false;lockOn();render()});
+let holdT=null;const hold=$('hold');
+hold.addEventListener('pointerdown',e=>{e.preventDefault();hold.classList.add('on');holdT=setTimeout(()=>{$('lock').hidden=true;hold.classList.remove('on')},1200)});
+['pointerup','pointerleave','pointercancel'].forEach(ev=>hold.addEventListener(ev,()=>{clearTimeout(holdT);hold.classList.remove('on')}));
+$('lock').addEventListener('contextmenu',e=>e.preventDefault());
+function show(v){document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!=='v-'+v);document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v===v));if(v==='res')renderRes();window.scrollTo(0,0)}
+document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>show(b.dataset.v)));
+function fill(){$('run-m').value=Math.floor(S.run/60);$('run-s').value=S.run%60;$('walk-m').value=Math.floor(S.walk/60);$('walk-s').value=S.walk%60;$('count').value=S.count;$('warm').value=S.warm;
+  $('tot').textContent=fmt(S.count*S.run+(S.count-1)*S.walk);$('snd').value=S.snd;['tick','vib','voice'].forEach(k=>$(k).checked=!!S[k])}
+const num=(id,lo,hi)=>{const v=Math.round(+$(id).value);return isNaN(v)?lo:Math.max(lo,Math.min(hi,v))};
+['run-m','run-s','walk-m','walk-s','count','warm'].forEach(id=>$(id).addEventListener('change',()=>{
+  S.run=Math.max(5,num('run-m',0,59)*60+num('run-s',0,59));S.walk=num('walk-m',0,59)*60+num('walk-s',0,59);S.count=num('count',1,50);S.warm=num('warm',0,60);
+  save();fill();render()}));
+['tick','vib','voice'].forEach(k=>$(k).addEventListener('change',()=>{S[k]=$(k).checked;save()}));
+$('snd').addEventListener('change',()=>{S.snd=$('snd').value;save();bake().then(()=>preview('run'))});
+document.querySelectorAll('[data-cue]').forEach(b=>b.addEventListener('click',()=>preview(b.dataset.cue)));
+$('vname').addEventListener('change',()=>{S.vname=$('vname').value;save()});
+$('vtest').addEventListener('click',()=>{const o=S.voice;S.voice=true;say('Laufen. Runde drei.');S.voice=o});
+$('copy').addEventListener('click',()=>{const c=curList();if(!c)return;const z=summ(c.segs);let t='Intervall-Lauf\n';c.segs.forEach(s=>{t+=s.label+': '+fmt(s.ms/1000)+', '+km(s.dist)+', '+pace(s.ms,s.dist)+'\n'});
+  t+='\nGesamt: '+fmt((z.ms+c.pMs)/1000)+' (davon '+fmt(c.pMs/1000)+' Unterbrechung), '+km(z.dist)+'\nLaufen: '+pace(z.r.ms,z.r.dist)+' ('+kmh(z.r.ms,z.r.dist)+' km/h), Anteil Zeit '+pct(z.tS)+'\nGehen: '+pace(z.w.ms,z.w.dist)+' ('+kmh(z.w.ms,z.w.dist)+' km/h), Anteil Zeit '+pct(1-z.tS);
+  const b=$('copy');navigator.clipboard.writeText(t).then(()=>{b.textContent='Kopiert ✓'},()=>{b.textContent='Nicht möglich'}).finally(()=>setTimeout(()=>{b.textContent='Kopieren'},2000))});
+$('bcopy').addEventListener('click',()=>{const b=$('bcopy');navigator.clipboard.writeText($('backup').value).then(()=>{b.textContent='Kopiert ✓'},()=>{$('backup').select();b.textContent='Bitte manuell kopieren'}).finally(()=>setTimeout(()=>{b.textContent='Sicherung kopieren'},2500))});
+$('bload').addEventListener('click',()=>{const b=$('bload');try{const v=JSON.parse($('backup').value);if(!Array.isArray(v)||v.some(e=>typeof e.date!=='number'||typeof e.ms!=='number'))throw 0;hist=v.sort((p,q)=>p.date-q.date);saveHist();renderHist();b.textContent='Eingespielt ✓'}catch(e){b.textContent='Text ungültig'}setTimeout(()=>{b.textContent='Sicherung einspielen'},2500)});
+let delArmed=false;
+$('bdel').addEventListener('click',()=>{const b=$('bdel');if(!hist.length)return;if(!delArmed){delArmed=true;b.textContent='Wirklich löschen?';setTimeout(()=>{delArmed=false;b.textContent='Letztes Training löschen'},3000);return}delArmed=false;hist.pop();saveHist();renderHist();b.textContent='Letztes Training löschen'});
+if('speechSynthesis'in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices}else loadVoices();
+fill();bake();render();renderHist();
+}
+</script>
+</body>
+</html>
